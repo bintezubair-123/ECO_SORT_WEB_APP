@@ -648,14 +648,18 @@ if "show_scanner" not in st.session_state:
 # CONFIGURATION & API
 # ============================================================================
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
+def _get_secret(key: str, fallback: str = "") -> str:
+    """Read a secret from st.secrets first, then env vars, then fallback."""
     try:
-        GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
-    except:
+        value = st.secrets.get(key)
+        if value:
+            return value
+    except Exception:
         pass
+    return os.getenv(key, fallback)
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-2-vision-13b")
+GROQ_API_KEY = _get_secret("GROQ_API_KEY")
+GROQ_MODEL   = _get_secret("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 
 
 REGIONS = {
