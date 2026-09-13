@@ -757,35 +757,36 @@ def encode_image_to_base64(image_file):
         return None
 
 def analyze_waste_with_groq(image_base64, region="Global"):
-    """Send image to Groq API for waste classification."""
+    """Send image to Groq and return guaranteed-valid JSON."""
     if not GROQ_API_KEY:
         return None, "Error: GROQ_API_KEY not configured. Please set it in environment variables or Streamlit secrets."
-    
+
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
-        
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
-        
-        prompt = """Analyze this waste item image and provide a JSON response with the following structure:
 
-{
-  "item": "Name of the item",
-  "material": "Primary material(s)",
-  "category": "One of: Recyclable, Organic/Compostable, Hazardous, Electronic Waste, General/Residual, Reusable",
+        prompt = f"""Analyze this waste item image for the {region} region.
+
+Return ONLY a JSON object. Do not use Markdown or extra text.
+
+Use exactly these fields:
+{{
+  "item": "short item name",
+  "material": "short material description",
+  "category": "Recyclable, Organic/Compostable, Hazardous, Electronic Waste, General/Residual, or Reusable",
   "confidence": "High, Medium, or Low",
-  "reasoning": "Brief explanation of identification",
-  "disposal_steps": ["Step 1", "Step 2", "Step 3"],
-  "safety_warning": "Any safety concern or 'No major hazard identified.'",
-  "eco_tip": "One practical sustainability tip",
-  "reuse_suggestion": "Reuse suggestion or empty string if not applicable",
-  "uncertainty": "Explanation of uncertainty if confidence is low, or empty string if confident"
-}
+  "reasoning": "one short sentence explaining the classification",
+  "disposal_steps": ["short step 1", "short step 2", "short step 3"],
+  "safety_warning": "short safety warning, or No major hazard identified.",
+  "eco_tip": "one short practical eco tip",
+  "reuse_suggestion": "short reuse idea, or empty string",
+  "uncertainty": "short uncertainty note, or empty string"
+}}
 
-Be conservative with confidence. If the image is unclear or the item identity ambiguous, mark confidence as Low and explain in the uncertainty field.
-Always prioritize safety warnings for potentially hazardous items."""
+If the image is unclear, use Low confidence. Always prioritize safety for batteries, chemicals, medical waste, sharps, aerosols, unknown liquids, electrical components, toxic substances, and broken glass."""
 
         payload = {
             "model": GROQ_MODEL,
@@ -793,10 +794,7 @@ Always prioritize safety warnings for potentially hazardous items."""
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -806,48 +804,117 @@ Always prioritize safety warnings for potentially hazardous items."""
                     ]
                 }
             ],
-            "temperature": 0.3,
-            "max_tokens": 1000
+            "temperature": 0.1,
+            "max_completion_tokens": 700,
+            "reasoning_format": "hidden",
+            "reasoning_effort": "none",
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "waste_analysis",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "item": {"type": "string"},
+                            "material": {"type": "string"},
+                            "category": {"type": "string"},
+                            "confidence": {"type": "string"},
+                            "reasoning": {"type": "string"},
+                            "disposal_steps": {"type": "array", "items": {"type": "string"}},
+                            "safety_warning": {"type": "string"},
+                            "eco_tip": {"type": "string"},
+                            "reuse_suggestion": {"type": "string"},
+                            "uncertainty": {"type": "string"}
+                        },
+                        "required": [
+                            "item", "material", "category", "confidence", "reasoning",
+                            "disposal_steps", "safety_warning", "eco_tip",
+                            "reuse_suggestion", "uncertainty"
+                        ],
+                        "additionalProperties": False
+                    }
+                }
+            }
         }
-        
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-        
+
+        response = requests.post(
+            url,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+
         if response.status_code != 200:
             error_detail = response.text
             if response.status_code == 401:
                 return None, "Error: Invalid GROQ_API_KEY. Please verify your credentials."
-            elif response.status_code == 404:
+            if response.status_code == 404:
                 return None, f"Error: Vision model '{GROQ_MODEL}' not found."
-            elif response.status_code == 400:
-                return None, f"Error: Bad request. Model may not support vision."
-            else:
-                return None, f"API Error {response.status_code}: {error_detail}"
-        
+            if response.status_code == 429:
+                return None, "Groq rate limit reached. Please wait about 1 minute and try again."
+            if response.status_code == 400:
+                return None, f"Error: Groq rejected the request. {error_detail}"
+            return None, f"API Error {response.status_code}: {error_detail}"
+
         response_data = response.json()
-        
-        if "choices" not in response_data or len(response_data["choices"]) == 0:
+        choices = response_data.get("choices", [])
+
+        if not choices:
             return None, "Error: Unexpected API response format."
-        
-        content = response_data["choices"][0]["message"]["content"]
-        
+
+        message = choices[0].get("message", {})
+        content = message.get("content", "")
+
+        if not content:
+            return None, "Error: The AI returned an empty response."
+
         try:
-            import re
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
-                result = json.loads(content)
+            result = json.loads(content)
         except json.JSONDecodeError:
-            return None, "Error: Could not parse AI response. Please try again."
-        
+            # Fallback for any unexpected wrapper text.
+            cleaned = content.strip()
+            first_brace = cleaned.find("{")
+            last_brace = cleaned.rfind("}")
+            if first_brace == -1 or last_brace <= first_brace:
+                return None, "Error: Could not parse AI response. Please try again."
+            try:
+                result = json.loads(cleaned[first_brace:last_brace + 1])
+            except json.JSONDecodeError:
+                return None, "Error: Could not parse AI response. Please try again."
+
+        if not isinstance(result, dict):
+            return None, "Error: AI returned an invalid result format. Please try again."
+
+        defaults = {
+            "item": "Unknown",
+            "material": "Unknown",
+            "category": "General/Residual",
+            "confidence": "Low",
+            "reasoning": "The AI could not provide a detailed explanation.",
+            "disposal_steps": [],
+            "safety_warning": "Use caution if the item may be hazardous.",
+            "eco_tip": "Follow local waste-management guidance.",
+            "reuse_suggestion": "",
+            "uncertainty": "The result may be uncertain."
+        }
+
+        for key, default in defaults.items():
+            if key not in result or result[key] is None:
+                result[key] = default
+
+        if not isinstance(result["disposal_steps"], list):
+            result["disposal_steps"] = [str(result["disposal_steps"])]
+
         return result, None
-    
+
     except requests.exceptions.Timeout:
         return None, "Error: API request timed out. Please try again."
     except requests.exceptions.ConnectionError:
         return None, "Error: Could not connect to Groq API. Please check your internet connection."
     except Exception as e:
         return None, f"Unexpected error: {str(e)}"
+
 
 def get_category_badge_class(category):
     """Get CSS class for category badge."""
