@@ -200,11 +200,12 @@ st.markdown(f"""
     
     .btn-primary {{
         background-color: {DESIGN_TOKENS["primary"]};
-        color: white;
+        color: white !important;
     }}
     
     .btn-primary:hover {{
         background-color: #0f3620;
+        color: white !important;
         transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(27, 77, 46, 0.15);
     }}
@@ -540,13 +541,18 @@ st.markdown(f"""
         font-size: 16px;
         padding: 14px 28px;
         background-color: {DESIGN_TOKENS["primary"]};
-        color: white;
+        color: white !important;
         transition: all 0.3s ease;
     }}
     
     .stButton > button:hover {{
         background-color: #0f3620;
+        color: white !important;
         box-shadow: 0 8px 20px rgba(27, 77, 46, 0.15);
+    }}
+    
+    .stButton > button p {{
+        color: white !important;
     }}
     
     .stSelectbox {{
@@ -931,7 +937,7 @@ def render_navbar():
 .navbar-cta {{
     padding: 12px 24px;
     background-color: {DESIGN_TOKENS['primary']};
-    color: white;
+    color: white !important;
     border-radius: 20px;
     text-decoration: none;
     font-weight: 500;
@@ -942,6 +948,7 @@ def render_navbar():
 }}
 .navbar-cta:hover {{
     background-color: #0f3620;
+    color: white !important;
     transform: translateY(-1px);
 }}
 @media (max-width: 768px) {{
@@ -1382,7 +1389,7 @@ def render_impact_section():
             <p class="subtitle" style="color: rgba(255,255,255,0.9); margin-bottom: 24px;">
                 Contribute to a more sustainable future, one scan at a time.
             </p>
-            <a href="#scanner-section" class="btn btn-secondary" style="background-color: white; color: {DESIGN_TOKENS['primary']}; border: none; text-decoration: none; display: inline-flex;">
+            <a href="#scanner-section" class="btn btn-secondary" style="background-color: {DESIGN_TOKENS['primary']}; color: white !important; border: none; text-decoration: none; display: inline-flex;">
                 Start Sorting Today ↗
             </a>
         </div>
